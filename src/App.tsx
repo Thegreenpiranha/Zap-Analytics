@@ -1,70 +1,24 @@
-// NOTE: This file should normally not be modified unless you are adding a new provider.
-// To add new routes, edit the AppRouter.tsx file.
+import { useState } from 'react';
+import { useAnalytics, type TimeRange } from './hooks/useAnalytics';
+import { Dashboard } from './components/Dashboard';
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { createHead, UnheadProvider } from '@unhead/react/client';
-import { InferSeoMetaPlugin } from '@unhead/addons';
-import { Suspense } from 'react';
-import NostrProvider from '@/components/NostrProvider';
-import { NostrSync } from '@/components/NostrSync';
-import { Toaster } from "@/components/ui/toaster";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { NostrLoginProvider } from '@nostrify/react/login';
-import { AppProvider } from '@/components/AppProvider';
-import { NWCProvider } from '@/contexts/NWCContext';
-import { AppConfig } from '@/contexts/AppContext';
-import AppRouter from './AppRouter';
+const SITE_ID = 'test-store';
 
-const head = createHead({
-  plugins: [
-    InferSeoMetaPlugin(),
-  ],
-});
+export default function App() {
+  const [timeRange, setTimeRange] = useState<TimeRange>('30d');
+  const [currency, setCurrency] = useState<'GBP' | 'USD' | 'EUR' | 'sats'>('GBP');
+  const data = useAnalytics(SITE_ID, timeRange);
 
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      refetchOnWindowFocus: false,
-      staleTime: 60000, // 1 minute
-      gcTime: Infinity,
-    },
-  },
-});
-
-const defaultConfig: AppConfig = {
-  theme: "dark",
-  relayMetadata: {
-    relays: [
-      { url: 'wss://relay.ditto.pub', read: true, write: true },
-      { url: 'wss://relay.primal.net', read: true, write: true },
-      { url: 'wss://relay.damus.io', read: true, write: true },
-    ],
-    updatedAt: 0,
-  },
-};
-
-export function App() {
   return (
-    <UnheadProvider head={head}>
-      <AppProvider storageKey="nostr:app-config" defaultConfig={defaultConfig}>
-        <QueryClientProvider client={queryClient}>
-          <NostrLoginProvider storageKey='nostr:login'>
-            <NostrProvider>
-              <NostrSync />
-              <NWCProvider>
-                <TooltipProvider>
-                  <Toaster />
-                  <Suspense>
-                    <AppRouter />
-                  </Suspense>
-                </TooltipProvider>
-              </NWCProvider>
-            </NostrProvider>
-          </NostrLoginProvider>
-        </QueryClientProvider>
-      </AppProvider>
-    </UnheadProvider>
+    <div className="min-h-screen bg-[#0a0a0f]">
+      <Dashboard
+        data={data}
+        siteId={SITE_ID}
+        timeRange={timeRange}
+        onTimeRangeChange={setTimeRange}
+        currency={currency}
+        onCurrencyChange={setCurrency}
+      />
+    </div>
   );
 }
-
-export default App;

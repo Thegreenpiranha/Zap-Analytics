@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const API_BASE = 'http://localhost:3001';
 
-type TimeRange = 'today' | '7d' | '30d' | '90d';
+export type TimeRange = 'today' | '7d' | '30d' | '90d';
 
-interface Stats {
+export interface Stats {
   pageviews: number;
   unique_visitors: number;
   product_views: number;
@@ -14,13 +14,13 @@ interface Stats {
   total_revenue: number;
 }
 
-interface DailyRevenue {
+export interface DailyRevenue {
   date: string;
   revenue: number;
   transactions: number;
 }
 
-interface Product {
+export interface Product {
   product: string;
   views: number;
   add_to_cart: number;
@@ -28,12 +28,12 @@ interface Product {
   revenue: number;
 }
 
-interface TrafficSource {
+export interface TrafficSource {
   source: string;
   visitors: number;
 }
 
-interface Funnel {
+export interface Funnel {
   visited: number;
   viewed_product: number;
   added_to_cart: number;
@@ -41,24 +41,13 @@ interface Funnel {
   purchased: number;
 }
 
-interface LiveEvent {
+export interface LiveEvent {
   id: number;
   name: string;
   url: string;
   path: string;
   props: string;
   created_at: string;
-}
-
-interface AnalyticsData {
-  stats: Stats;
-  dailyRevenue: DailyRevenue[];
-  products: Product[];
-  sources: TrafficSource[];
-  funnel: Funnel;
-  liveEvents: LiveEvent[];
-  isLoading: boolean;
-  error: string | null;
 }
 
 const EMPTY_STATS: Stats = {
@@ -71,7 +60,7 @@ const EMPTY_FUNNEL: Funnel = {
   started_checkout: 0, purchased: 0,
 };
 
-export function useAnalytics(siteId: string, timeRange: TimeRange): AnalyticsData {
+export function useAnalytics(siteId: string, timeRange: TimeRange) {
   const [stats, setStats] = useState<Stats>(EMPTY_STATS);
   const [dailyRevenue, setDailyRevenue] = useState<DailyRevenue[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -79,6 +68,7 @@ export function useAnalytics(siteId: string, timeRange: TimeRange): AnalyticsDat
   const [funnel, setFunnel] = useState<Funnel>(EMPTY_FUNNEL);
   const [liveEvents, setLiveEvents] = useState<LiveEvent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -103,8 +93,10 @@ export function useAnalytics(siteId: string, timeRange: TimeRange): AnalyticsDat
       setSources(await sourcesRes.json());
       setFunnel(await funnelRes.json());
       setLiveEvents(await liveRes.json());
+      setIsConnected(true);
       setError(null);
     } catch (err) {
+      setIsConnected(false);
       setError('Failed to connect to analytics API');
       console.error('[useAnalytics]', err);
     } finally {
@@ -112,13 +104,11 @@ export function useAnalytics(siteId: string, timeRange: TimeRange): AnalyticsDat
     }
   }, [siteId, timeRange]);
 
-  // Fetch on mount and when timeRange changes
   useEffect(() => {
     setIsLoading(true);
     fetchAll();
   }, [fetchAll]);
 
-  // Poll every 30 seconds for live updates
   useEffect(() => {
     intervalRef.current = setInterval(fetchAll, 30000);
     return () => {
@@ -126,5 +116,5 @@ export function useAnalytics(siteId: string, timeRange: TimeRange): AnalyticsDat
     };
   }, [fetchAll]);
 
-  return { stats, dailyRevenue, products, sources, funnel, liveEvents, isLoading, error };
+  return { stats, dailyRevenue, products, sources, funnel, liveEvents, isLoading, isConnected, error };
 }
