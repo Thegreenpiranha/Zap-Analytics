@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { useSeoMeta } from '@unhead/react';
 import {
   Eye,
@@ -14,15 +14,8 @@ import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
-import {
-  generateProducts,
-  generateDailyRevenue,
-  generateTrafficSources,
-  generateAggregateStats,
-  formatSats,
-  satsToUsd,
-} from '@/lib/mock-data';
-import { useRelaySimulator } from '@/hooks/useRelaySimulator';
+import { formatSats, satsToUsd } from '@/lib/mock-data';
+import { useAnalytics } from '@/hooks/useAnalytics';
 import { StatCard } from '@/components/analytics/StatCard';
 import { ConversionFunnel } from '@/components/analytics/ConversionFunnel';
 import { TopProducts } from '@/components/analytics/TopProducts';
@@ -34,12 +27,12 @@ import { OnboardingModal } from '@/components/analytics/OnboardingModal';
 
 type TimeRange = 'today' | '7d' | '30d' | '90d';
 
-const DEMO_NPUB = 'npub1qe3e7a...5f2k';
+const SITE_ID = import.meta.env.VITE_SITE_ID || 'test-store';
 
 const Index = () => {
   useSeoMeta({
-    title: 'Zap Analytics — Privacy-Preserving Nostr Commerce Intelligence',
-    description: 'Track your Nostr shop performance with zero cookies, no personal data, and fully privacy-preserving analytics. Built for NIP-15 merchants.',
+    title: 'Zap Analytics — Privacy-Preserving Ecommerce Intelligence',
+    description: 'Track your shop performance with zero cookies, no personal data, and fully privacy-preserving analytics.',
   });
 
   const [timeRange, setTimeRange] = useState<TimeRange>('30d');
@@ -47,24 +40,74 @@ const Index = () => {
   const [copied, setCopied] = useState(false);
   const [activeTab, setActiveTab] = useState('merchant');
 
-  const { events, isConnected } = useRelaySimulator(true);
+  const {
+    stats,
+    dailyRevenue,
+    products,
+    sources,
+    funnel,
+    liveEvents,
+    isLoading,
+    error,
+  } = useAnalytics(SITE_ID, timeRange);
 
-  const products = useMemo(() => generateProducts(), []);
+  // Map API data to component formats
+  const isConnected = !error && !isLoading;
 
-  const dailyRevenue = useMemo(() => {
-    const days = timeRange === 'today' ? 1 : timeRange === '7d' ? 7 : timeRange === '30d' ? 30 : 90;
-    return generateDailyRevenue(days);
-  }, [timeRange]);
+  const feedEvents = liveEvents.map((e) => {
+    let parsedProps: Record<string, unknown> = {};
+    try { parsedProps = JSON.parse(e.props); } catch {}
+    return {
+      id: String(e.id),
+      type: e.name as 'product_view' | 'add_to_cart' | 'checkout_start' | 'zap_initiated' | 'zap_complete',
+      product: (parsedProps.product as string) || e.path || '/',
+      amount: (parsedProps.revenue as number) || undefined,
+      timestamp: new Date(e.created_at).getTime(),
+    };
+  });
 
-  const trafficSources = useMemo(() => generateTrafficSources(), []);
+  // Map products for TopProducts component
+  const productData = products.map((p, i) => ({
+    id: `product-${i}`,
+    name: p.product || 'Unknown',
+    category: 'All',
+    views: Number(p.views) || 0,
+    addToCart: Number(p.add_to_cart) || 0,
+    checkoutStart: 0,
+    zapInitiated: 0,
+    zapComplete: Number(p.purchases) || 0,
+    revenue: Number(p.revenue) || 0,
+    avgZapSize: Number(p.purchases) > 0 ? Math.round(Number(p.revenue) / Number(p.purchases)) : 0,
+    trend: [],
+  }));
 
-  const stats = useMemo(
-    () => generateAggregateStats(products, timeRange),
-    [products, timeRange],
-  );
+  // Map sources for TrafficSources component
+  const sourceColors = ['#f7931a', '#8b5cf6', '#22c55e', '#0ea5e9', '#f59e0b', '#6b7280', '#ef4444', '#ec4899', '#14b8a6', '#a855f7'];
+  const totalVisitors = sources.reduce((sum, s) => sum + Number(s.visitors), 0);
+  const trafficData = sources.map((s, i) => ({
+    name: s.source,
+    value: totalVisitors > 0 ? Math.round((Number(s.visitors) / totalVisitors) * 100) : 0,
+    color: sourceColors[i % sourceColors.length],
+  }));
 
-  const handleCopyNpub = useCallback(() => {
-    navigator.clipboard.writeText(DEMO_NPUB);
+  // Map funnel for ConversionFunnel component
+  const funnelProducts = [{
+    id: 'funnel-all',
+    name: 'All Products',
+    category: 'All',
+    views: Number(funnel.viewed_product) || 0,
+    addToCart: Number(funnel.added_to_cart) || 0,
+    checkoutStart: Number(funnel.started_checkout) || 0,
+    zapInitiated: Number(funnel.started_checkout) || 0,
+    zapComplete: Number(funnel.purchased) || 0,
+    revenue: Number(stats.total_revenue) || 0,
+    avgZapSize: 0,
+    trend: [],
+  }];
+
+  const handleCopySnippet = useCallback(() => {
+    const snippet = `<script defer data-api="https://your-zap-instance.com/api/event" data-site="${SITE_ID}" src="https://your-zap-instance.com/js/zap-track.js"></script>`;
+    navigator.clipboard.writeText(snippet);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }, []);
@@ -86,7 +129,6 @@ const Index = () => {
       <header className="sticky top-0 z-50 border-b border-border/50 bg-[#0a0a0a]/80 backdrop-blur-xl">
         <div className="mx-auto max-w-[1440px] px-4 sm:px-6">
           <div className="flex h-14 items-center justify-between">
-            {/* Logo */}
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-bitcoin/10">
@@ -103,16 +145,15 @@ const Index = () => {
               </div>
             </div>
 
-            {/* Center: npub + live indicator */}
             <div className="hidden md:flex items-center gap-4">
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
-                    onClick={handleCopyNpub}
+                    onClick={handleCopySnippet}
                     className="flex items-center gap-1.5 rounded-md bg-secondary/50 px-2.5 py-1.5 transition-colors hover:bg-secondary"
                   >
                     <span className="text-[10px] font-mono text-muted-foreground">
-                      {DEMO_NPUB}
+                      {SITE_ID}
                     </span>
                     {copied ? (
                       <Check className="h-3 w-3 text-emerald-400" />
@@ -122,7 +163,7 @@ const Index = () => {
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p className="text-xs">Click to copy full npub</p>
+                  <p className="text-xs">Click to copy tracking snippet</p>
                 </TooltipContent>
               </Tooltip>
 
@@ -133,15 +174,16 @@ const Index = () => {
                     isConnected ? 'bg-emerald-400 animate-live-pulse' : 'bg-red-400',
                   )}
                 />
-                <span className="text-[10px] font-medium text-emerald-400">
-                  {isConnected ? 'Live' : 'Connecting...'}
+                <span className={cn(
+                  'text-[10px] font-medium',
+                  isConnected ? 'text-emerald-400' : 'text-red-400',
+                )}>
+                  {isLoading ? 'Loading...' : isConnected ? 'Connected' : 'Disconnected'}
                 </span>
               </div>
             </div>
 
-            {/* Right: actions */}
             <div className="flex items-center gap-2">
-              {/* Time range selector */}
               <div className="flex items-center rounded-lg bg-secondary/50 p-0.5">
                 {timeRanges.map((range) => (
                   <button
@@ -189,11 +231,10 @@ const Index = () => {
                 className="text-xs data-[state=active]:bg-purple/10 data-[state=active]:text-purple"
               >
                 <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
-                Relay Operator
+                Self-Host
               </TabsTrigger>
             </TabsList>
 
-            {/* Mobile live indicator */}
             <div className="flex md:hidden items-center gap-1.5">
               <div
                 className={cn(
@@ -209,54 +250,52 @@ const Index = () => {
 
           <TabsContent value="merchant" className="mt-0">
             <div className="flex flex-col xl:flex-row gap-5">
-              {/* Left: Main dashboard */}
               <div className="flex-1 min-w-0 space-y-5">
                 {/* Hero Stats */}
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                   <StatCard
-                    title="Product Views"
-                    value={stats.totalViews}
-                    change={stats.viewsChange}
+                    title="Page Views"
+                    value={Number(stats.pageviews) || 0}
+                    change={0}
                     icon={<Eye className="h-4 w-4" />}
                     delay={0}
                     accentColor="orange"
                   />
                   <StatCard
                     title="Unique Visitors"
-                    value={stats.uniqueVisitors}
-                    change={stats.visitorsChange}
+                    value={Number(stats.unique_visitors) || 0}
+                    change={0}
                     icon={<Users className="h-4 w-4" />}
                     delay={100}
                     accentColor="purple"
                   />
                   <StatCard
-                    title="Zaps Received"
-                    value={stats.totalZaps}
-                    change={stats.zapsChange}
+                    title="Purchases"
+                    value={Number(stats.purchases) || 0}
+                    change={0}
                     icon={<Zap className="h-4 w-4" />}
                     delay={200}
                     accentColor="green"
                   />
                   <StatCard
                     title="Total Revenue"
-                    value={stats.totalRevenue}
+                    value={Number(stats.total_revenue) || 0}
                     format={formatSats}
-                    change={stats.revenueChange}
+                    change={0}
                     icon={<DollarSign className="h-4 w-4" />}
                     delay={300}
                     accentColor="blue"
                   />
                 </div>
 
-                {/* Revenue subtext */}
                 <div className="flex justify-end -mt-3">
                   <span className="text-[10px] text-muted-foreground">
-                    ≈ {satsToUsd(stats.totalRevenue)} USD
+                    ≈ {satsToUsd(Number(stats.total_revenue) || 0)} USD
                   </span>
                 </div>
 
                 {/* Conversion Funnel */}
-                <ConversionFunnel products={products} />
+                <ConversionFunnel products={funnelProducts} />
 
                 {/* Revenue Chart */}
                 <RevenueChart data={dailyRevenue} />
@@ -264,25 +303,16 @@ const Index = () => {
                 {/* Two column: Traffic + Products */}
                 <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
                   <div className="lg:col-span-2">
-                    <TrafficSources data={trafficSources} />
+                    <TrafficSources data={trafficData} />
                   </div>
                   <div className="lg:col-span-3">
-                    <TopProducts products={products} />
+                    <TopProducts products={productData} />
                   </div>
                 </div>
 
-                {/* Footer */}
                 <footer className="pt-4 pb-8 text-center">
                   <p className="text-[10px] text-muted-foreground">
-                    Vibed with{' '}
-                    <a
-                      href="https://shakespeare.diy"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-bitcoin hover:underline"
-                    >
-                      Shakespeare
-                    </a>
+                    Zap Analytics
                     {' · '}No cookies · No personal data · Fully privacy-preserving
                   </p>
                 </footer>
@@ -291,7 +321,7 @@ const Index = () => {
               {/* Right: Live Feed Sidebar */}
               <div className="xl:w-72 2xl:w-80 flex-shrink-0">
                 <div className="xl:sticky xl:top-[72px] h-auto xl:h-[calc(100vh-88px)]">
-                  <LiveFeed events={events} isConnected={isConnected} />
+                  <LiveFeed events={feedEvents} isConnected={isConnected} />
                 </div>
               </div>
             </div>
@@ -300,26 +330,16 @@ const Index = () => {
           <TabsContent value="relay" className="mt-0">
             <RelayOperatorView />
 
-            {/* Footer */}
             <footer className="pt-6 pb-8 text-center">
               <p className="text-[10px] text-muted-foreground">
-                Vibed with{' '}
-                <a
-                  href="https://shakespeare.diy"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-bitcoin hover:underline"
-                >
-                  Shakespeare
-                </a>
-                {' · '}Relay-level aggregate stats · No individual user tracking
+                Zap Analytics
+                {' · '}Open source · Self-hostable · No individual user tracking
               </p>
             </footer>
           </TabsContent>
         </Tabs>
       </main>
 
-      {/* Onboarding Modal */}
       <OnboardingModal open={showOnboarding} onComplete={handleOnboardingComplete} />
     </div>
   );
